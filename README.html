@@ -1,0 +1,69 @@
+<span id="markdown-mermaid" aria-hidden="true"
+                    data-dark-mode-theme="dark"
+                    data-light-mode-theme="default"
+                    data-max-text-size="50000"></span>
+                <h1 id="f1c-gui-工具">f1c GUI 工具</h1>
+<p>这是一个基于 Tkinter 的图形界面，用于通过 <code>sunxi-fel</code>（SPI / Allwinner）或 <code>openocd</code>（AT32）向设备烧录固件、查看 SPI 信息及执行常用调试命令。</p>
+<h2 id="主要功能"><strong>主要功能</strong></h2>
+<ul>
+<li>通过 <code>sunxi-fel</code> 写入 SPI flash（BOOT0 / LOGO / EXEC 等）。</li>
+<li>通过 <code>openocd</code> 向 AT32 设备写入固件（支持 <code>.bin</code>、<code>.hex</code>、<code>.elf</code>）。</li>
+<li>Intel HEX 文件地址自动识别（地址留空时可解析起始地址）。</li>
+<li>ELF 支持（openocd 模式下，ELF 可不填地址，openocd 将使用 ELF 内置段地址）。</li>
+<li>提供“常用功能”下拉（如 device/version、spiflash-info、reset、flash erase 等）。</li>
+<li>sunxi 模式下提供“全片擦除（写 0xFF）”作为擦除替代方案（当本地 sunxi-fel 版本没有 spiflash-erase 命令时）。</li>
+</ul>
+<h2 id="注意与限制">注意与限制</h2>
+<ul>
+<li>
+<p>本工具为 GUI 前端，实际烧录依赖系统上可执行的 <code>sunxi-fel</code> 与/或 <code>openocd</code>。</p>
+</li>
+<li>
+<p>在 Windows 下推荐在 WSL/WSL2 的 Linux 环境中使用 <code>sunxi-fel</code>。</p>
+</li>
+<li>
+<p><code>sunxi-fel</code> 的全片擦除这里采用“写 0xFF”分块写入实现，速度较慢，请谨慎使用并确保电源稳定。</p>
+</li>
+<li>
+<p>HEX 自动识别基于解析 Intel HEX 格式；若格式不合规可能无法识别，请手动输入地址或转换为 bin。</p>
+</li>
+<li>
+<p>ELF 支持目前仅在 openocd 模式使用；若想用 ELF 写入 SPI（sunxi），请先用 <code>objcopy</code> 转为二进制：</p>
+<pre><code class="language-bash">arm-none-eabi-objcopy -O binary input.elf output.bin
+</code></pre>
+</li>
+</ul>
+<h2 id="快速开始">快速开始</h2>
+<ol>
+<li>安装依赖（至少需要 Python + Tkinter）：</li>
+</ol>
+<pre><code class="language-bash">sudo apt update
+sudo apt install -y python3 python3-tk
+<span class="hljs-comment"># 安装 openocd / sunxi-fel（按需）</span>
+sudo apt install -y openocd sunxi-tools
+<span class="hljs-comment"># 或自行编译并把可执行放到 PATH 或项目 lib 下</span>
+</code></pre>
+<ol>
+<li>运行 GUI：</li>
+</ol>
+<pre><code class="language-bash">python3 f1c_gui.py
+</code></pre>
+<ol>
+<li>在程序目录选择 <code>bin/</code>（或你放固件的目录），点击“刷新”，界面会自动列出 <code>.bin/.hex/.elf</code> 文件。</li>
+</ol>
+<h2 id="使用建议">使用建议</h2>
+<ul>
+<li>如果使用 <code>sunxi-fel</code> 模式，请确保选择的是 <code>.bin</code> 文件（界面会只在 BOOT0/EXEC/LOGO 下列出 <code>.bin</code>，避免误操作）。</li>
+<li>如果使用 <code>openocd</code> 模式，<code>.hex</code> 和 <code>.elf</code> 可不填写地址（启用“HEX 自动识别地址”或依赖 ELF 内置地址）。模板 <code>program {file} {addr} verify reset; exit</code> 可按需修改，例如 <code>program {file} verify reset; exit</code>（ELF 无需 {addr}）。</li>
+</ul>
+<h2 id="故障排查">故障排查</h2>
+<ul>
+<li>启动时报错提示缺少 Tkinter：请按提示安装 <code>python3-tk</code>。</li>
+<li>报错找不到 <code>sunxi-fel</code> 或 <code>openocd</code>：请把可执行加入 <code>PATH</code>，或在界面中手动指定本地可执行路径。</li>
+<li>HEX 地址无法识别：检查 HEX 文件是否为标准 Intel HEX，或使用 objcopy 转换后再烧录。</li>
+</ul>
+<h2 id="文件">文件</h2>
+<ul>
+<li>主脚本：<code>f1c_gui.py</code></li>
+</ul>
+<p>如果你希望我把 README 扩展成更详细的使用示例（包含常见命令模版、截图、或自动将 ELF 转 bin 的一键功能），我可以继续补充。</p>
