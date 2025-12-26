@@ -834,11 +834,15 @@ if tk is not None:
                     "file_var": file_var,
                     "addr_var": addr_var,
                     "default_addr": default_addr,
+                    "last_addr": default_addr,
                     "label": lbl,
                     "combo": combo,
                     "entry": entry,
                 }
             )
+
+            combo.bind("<<ComboboxSelected>>", lambda e, r=self.at32_entries[-1]: self._apply_at32_addr_state(r))
+            self._apply_at32_addr_state(self.at32_entries[-1])
 
         def _on_add_at32(self) -> None:
             self._add_at32_row(default_addr="")
@@ -856,6 +860,46 @@ if tk is not None:
                 except Exception:
                     pass
 
+        def _apply_at32_addr_state(self, row: dict[str, object]) -> None:
+            fv = row.get("file_var")
+            av = row.get("addr_var")
+            entry = row.get("entry")
+            if not isinstance(fv, tk.StringVar) or not isinstance(av, tk.StringVar):
+                return
+
+            path = self._selected_path(fv.get())
+            is_special = path is not None and (_is_hex_file(path) or _is_elf_file(path))
+
+            if is_special:
+                # 禁用地址输入并清空，记录上一次填写便于恢复
+                last = av.get().strip()
+                if last:
+                    row["last_addr"] = last
+                av.set("")
+                if entry is not None:
+                    try:
+                        entry.configure(state="disabled")  # type: ignore[union-attr]
+                    except Exception:
+                        pass
+            else:
+                if entry is not None:
+                    try:
+                        entry.configure(state="normal")  # type: ignore[union-attr]
+                    except Exception:
+                        pass
+                if not av.get().strip():
+                    prev = row.get("last_addr")
+                    if isinstance(prev, str) and prev:
+                        av.set(prev)
+                    else:
+                        default_addr = row.get("default_addr")
+                        if isinstance(default_addr, str) and default_addr:
+                            av.set(default_addr)
+
+        def _refresh_at32_addr_states(self) -> None:
+            for row in self.at32_entries:
+                self._apply_at32_addr_state(row)
+
         def _collect_at32_jobs(self) -> tuple[list[tuple[str, str]], str | None]:
             jobs: list[tuple[str, str]] = []
             for row in self.at32_entries:
@@ -872,12 +916,13 @@ if tk is not None:
                 if path is None and addr:
                     return [], f"AT32 地址已填写但未选择文件：{addr}"
                 if path is not None and (not addr):
-                    # HEX：可自动识别起始地址（地址留空时）
+                    # HEX：如果启用自动识别，改为留空地址交由 openocd 按文件内地址写入，避免重复偏移
                     if _is_hex_file(path) and bool(self.hex_auto_addr_var.get()):
+                        # 仍尝试解析以供提示，但不把地址写回到任务中
                         rng = parse_intel_hex_address_range(path)
                         if rng is None:
                             return [], f"HEX 地址识别失败：{os.path.basename(path)}（请手动填写地址或检查 HEX 格式）"
-                        addr = format_hex_addr(rng[0])
+                        addr = ""
                     # ELF：openocd 可直接按 ELF 内置段地址烧录，允许地址留空
                     elif _is_elf_file(path):
                         addr = ""
@@ -956,6 +1001,9 @@ if tk is not None:
                     fv.set(os.path.basename(def_logo))
                 if isinstance(av, tk.StringVar) and not av.get().strip():
                     av.set(LOGO_ADDRS[0])
+
+            # HEX/ELF 时自动关闭地址输入
+            self._refresh_at32_addr_states()
 
             self._log(f"程序目录：{directory}\n")
             if not self.files:
