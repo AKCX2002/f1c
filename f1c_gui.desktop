@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=F1C GUI
+Comment=F1C100S/F1C200S 下载工具 (GUI)
+Exec=python3 f1c_gui.py
+Path=/mnt/wsl/develop/f1c
+Terminal=false
+Icon=utilities-terminal
+Categories=Utility;
