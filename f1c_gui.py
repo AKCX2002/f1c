@@ -106,8 +106,10 @@ def run_command(argv: list[str], log: callable) -> None:
         log(line)
     rc = proc.wait()
     if rc != 0:
-        raise RuntimeError(f"命令执行失败，退出码 {rc}: {' '.join(argv)}")
-
+        if rc == 1:
+            raise RuntimeError(f"设备未连接")
+        else:
+            raise RuntimeError(f"命令执行失败，退出码 {rc}: {' '.join(argv)}")
 
 def _is_valid_addr(addr: str) -> bool:
     try:
