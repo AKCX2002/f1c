@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""f1c_gui.py
+
+GUI 工具：为 F1C/SUNXI 和 AT32 提供固件烧录、SPI 查询、全片擦除等操作。
+
+新增功能：
+- 支持 SUNXI 地址别名（如 boot0, logo1..logo5, exec）
+- 支持通过 GUI 在设备上写入十六进制数据（直接输入 hex 字节并写入 SPI）
+
+注意：依赖 sunxi-fel（用于 SUNXI SPI 操作）或 openocd（用于 AT32），
+并需要 Tkinter 支持 GUI（python3-tk）。
+"""
 
 import os
 from pathlib import Path
@@ -10,22 +21,35 @@ import subprocess
 import threading
 
 import sys
+from typing import Callable
 try:
     import tkinter as tk
     from tkinter import messagebox
     from tkinter import ttk
     from tkinter import filedialog
+    from tkinter import simpledialog
     _TK_ERROR: Exception | None = None
 except Exception as e:  # Tk 依赖缺失（常见：python3-tk / libtk8.6）
     tk = None  # type: ignore[assignment]
     messagebox = None  # type: ignore[assignment]
     ttk = None  # type: ignore[assignment]
+    simpledialog = None  # type: ignore[assignment]
     _TK_ERROR = e
 
 
 BOOT0_ADDR = "0x0"
 LOGO_ADDRS = ["0x6000", "0x36000", "0x65000", "0x71000", "0x77000"]
 F1C_ADDR = "0x100000"
+# SUNXI 常用别名映射（允许在地址输入处使用别名，如 'boot0', 'logo1', 'exec'）
+SUNXI_ADDRS = {
+    "boot0": BOOT0_ADDR,
+    "logo1": LOGO_ADDRS[0],
+    "logo2": LOGO_ADDRS[1],
+    "logo3": LOGO_ADDRS[2],
+    "logo4": LOGO_ADDRS[3],
+    "logo5": LOGO_ADDRS[4],
+    "exec": F1C_ADDR,
+}
 AT32_DEFAULT_ADDRS = ["0x08000000", "0x08002800"]
 
 
@@ -88,7 +112,7 @@ def logo_matches(files: list[str]) -> list[str]:
     return matches
 
 
-def run_command(argv: list[str], log: callable) -> None:
+def run_command(argv: list[str], log: Callable[[str], None]) -> None:
     log("$ " + " ".join(argv) + "\n")
     creationflags = 0
     if os.name == "nt":
@@ -115,6 +139,38 @@ def _is_valid_addr(addr: str) -> bool:
         return value >= 0
     except Exception:
         return False
+
+
+def resolve_sunxi_addr(addr: str) -> str | None:
+    """解析 SUNXI 地址或别名，返回标准 hex 字符串（如 '0x7000'）。
+
+    支持：
+    - 直接十六进制或十进制地址（如 '0x7000' 或 '28672'）
+    - 简短别名（如 'logo1', 'boot0', 'exec'）
+    - 带前缀的别名（如 'sunxi:logo1'）
+
+    返回 None 表示无法解析。
+    """
+    if addr is None:
+        return None
+    s = addr.strip()
+    if not s:
+        return ""
+    # 支持 sunxi:logo1 形式
+    if ":" in s:
+        prefix, _, rest = s.partition(":")
+        if prefix.lower() == "sunxi":
+            s = rest
+    key = s.lower()
+    if key in SUNXI_ADDRS:
+        return SUNXI_ADDRS[key]
+    try:
+        val = int(s, 0)
+        if val >= 0:
+            return hex(val)
+    except Exception:
+        pass
+    return None
 
 
 def find_local_sunxi_tool(search_root: str | Path) -> str | None:
@@ -357,13 +413,18 @@ def parse_spiflash_size_bytes(text: str) -> int | None:
 
 
 if tk is not None:
+    # 确保静态类型检查器知道这些符号非空
+    assert tk is not None
+    assert ttk is not None
+    assert messagebox is not None
+
     class App:
-        def __init__(self, root: tk.Tk):
+        def __init__(self, root):
             self.root = root
             self.root.title("下载工具")
 
             self._log_queue: queue.Queue[str] = queue.Queue()
-            self._ui_queue: queue.Queue[callable] = queue.Queue()
+            self._ui_queue: queue.Queue[Callable[[], None]] = queue.Queue()
             self._worker: threading.Thread | None = None
 
             self.files: list[str] = []
@@ -538,7 +599,7 @@ if tk is not None:
             # shift following rows down by 1 (they were previously at row indices >=4)
 
             row += 1
-            self.boot0_label = ttk.Label(main, text="BOOT0：")
+            self.boot0_label = ttk.Label(main, text="BOOT0（支持别名如 boot0）：")
             self.boot0_label.grid(row=row, column=0, sticky="w")
             self.boot0_combo = ttk.Combobox(main, textvariable=self.boot0_var, state="readonly")
             self.boot0_combo.grid(row=row, column=1, sticky="ew", padx=(6, 0))
@@ -553,7 +614,7 @@ if tk is not None:
 
             ttk.Label(self.logo_box, text="#").grid(row=0, column=0, sticky="w")
             ttk.Label(self.logo_box, text="LOGO BIN").grid(row=0, column=1, sticky="w")
-            ttk.Label(self.logo_box, text="地址(如 0x7000)").grid(row=0, column=2, sticky="w", padx=(8, 0))
+            ttk.Label(self.logo_box, text="地址(如 0x7000，或别名 logo1)").grid(row=0, column=2, sticky="w", padx=(8, 0))
 
             self.logo_rows_frame = ttk.Frame(self.logo_box)
             self.logo_rows_frame.grid(row=1, column=0, columnspan=3, sticky="ew")
@@ -567,7 +628,7 @@ if tk is not None:
             self.logo_del_btn.grid(row=0, column=1, sticky="w", padx=(8, 0))
 
             row += 1
-            self.exec_label = ttk.Label(main, text="EXEC/F1C：")
+            self.exec_label = ttk.Label(main, text="EXEC/F1C（支持别名 exec）：")
             self.exec_label.grid(row=row, column=0, sticky="w", pady=(8, 0))
             self.exec_combo = ttk.Combobox(main, textvariable=self.exec_var, state="readonly")
             self.exec_combo.grid(row=row, column=1, sticky="ew", padx=(6, 0), pady=(8, 0))
@@ -610,7 +671,7 @@ if tk is not None:
             self._update_openocd_visibility()
             self._update_action_choices()
 
-        def _ui(self, fn: callable) -> None:
+        def _ui(self, fn: Callable[[], None]) -> None:
             self._ui_queue.put(fn)
 
         def _on_browse_bin_dir(self) -> None:
@@ -713,6 +774,7 @@ if tk is not None:
                 values = [
                     "检测设备（version）",
                     "SPI 信息（spiflash-info）",
+                    "写入十六进制（hex -> addr）",
                     "全片擦除（写0xFF，较慢）",
                     "重启（wdreset）",
                 ]
@@ -984,12 +1046,12 @@ if tk is not None:
             if self.at32_entries:
                 row0 = self.at32_entries[0]
                 fv0 = row0.get("file_var")
-                if isinstance(fv0, tk.StringVar) and fv0.get() == "跳过" and def_at32_boot:
+                if fv0 is not None and isinstance(fv0, tk.StringVar) and fv0.get() == "跳过" and def_at32_boot:
                     fv0.set(os.path.basename(def_at32_boot))
             if len(self.at32_entries) >= 2:
                 row1 = self.at32_entries[1]
                 fv1 = row1.get("file_var")
-                if isinstance(fv1, tk.StringVar) and fv1.get() == "跳过" and def_at32_app:
+                if fv1 is not None and isinstance(fv1, tk.StringVar) and fv1.get() == "跳过" and def_at32_app:
                     fv1.set(os.path.basename(def_at32_app))
 
             # 如果第一条 LOGO 还没选文件，则给一个常用默认值
@@ -1192,6 +1254,100 @@ if tk is not None:
                 except Exception:
                     pass
 
+        def _write_hex_to_tempfile(self, hex_text: str, path: str | Path, size: int | None = None) -> None:
+            """将十六进制字符串写入临时文件（用于写入到 SPI）。
+
+            hex_text: 支持带或不带 0x 前缀、空格或换行的十六进制文本，例如："A1 B2 C3"、"0xA1 0xB2" 或 "a1b2c3"。
+            path: 目标临时文件路径。
+            size: 可选，期望写入的字节数；如果提供则会对解析出的数据进行截断或用 0x00 补齐到该长度。
+
+            抛出 ValueError 当 hex 格式不合法或 size 非法。
+            """
+            s = re.sub(r"\s+", "", hex_text)
+            s = s.lower()
+            s = s.replace("0x", "")
+            if not s:
+                raise ValueError("空的十六进制输入")
+            if re.fullmatch(r"[0-9a-f]+", s) is None:
+                raise ValueError("十六进制字符串包含非法字符（只允许 0-9 a-f）")
+            if len(s) % 2 == 1:
+                # 奇数字节数，左侧补 0
+                s = "0" + s
+            data = bytes.fromhex(s)
+
+            if size is not None:
+                if size < 0:
+                    raise ValueError("目标范围长度不能为负数")
+                if len(data) > size:
+                    # 截断
+                    data = data[:size]
+                elif len(data) < size:
+                    # 补 0x00 到指定长度
+                    data = data + bytes([0x00]) * (size - len(data))
+
+            with open(path, "wb") as f:
+                f.write(data)
+
+        def _prompt_and_prepare_hex_write(self) -> tuple[str, Path] | None:
+            """在主线程中弹出对话框获取起始/结束地址与十六进制输入，并将数据写入临时文件。
+
+            行为：
+            - 会先询问起始地址（支持别名或直接地址）。
+            - 然后询问结束地址（可选）。当提供结束地址时，程序会把 hex 数据截断或用 0x00 补齐到范围长度（end-start）。
+              若未提供结束地址，则按数据长度写入（与历史行为兼容）。
+
+            返回 (resolved_start_addr, tmp_path) 或 None（表示用户取消）。
+            """
+            if simpledialog is None:
+                messagebox.showerror("缺少模块", "当前环境未提供 tkinter.simpledialog（无法弹出输入对话框）。")
+                return None
+
+            start_addr = simpledialog.askstring("写入十六进制", "起始地址（支持别名，如 logo1，或直接地址如 0x7000）：")
+            if not start_addr:
+                return None
+            resolved_start = resolve_sunxi_addr(start_addr.strip())
+            if resolved_start is None:
+                messagebox.showerror("地址错误", f"起始地址格式或别名非法：{start_addr}")
+                return None
+
+            end_addr = simpledialog.askstring("写入十六进制", "结束地址（可选，留空则按数据长度写入）：")
+            resolved_end: str | None = None
+            if end_addr and end_addr.strip():
+                resolved_end = resolve_sunxi_addr(end_addr.strip())
+                if resolved_end is None:
+                    messagebox.showerror("地址错误", f"结束地址格式或别名非法：{end_addr}")
+                    return None
+
+            hex_text = simpledialog.askstring("写入十六进制", "输入十六进制字节（例如：A1B2C3 或 0xA1 0xB2）：")
+            if not hex_text:
+                return None
+
+            tmp = Path(script_dir()) / "_write_hex.tmp"
+            try:
+                if resolved_end:
+                    try:
+                        start_int = int(resolved_start, 0)
+                        end_int = int(resolved_end, 0)
+                    except Exception:
+                        messagebox.showerror("地址错误", "无法解析起始/结束地址为数字。")
+                        return None
+                    if end_int <= start_int:
+                        messagebox.showerror("地址错误", "结束地址必须大于起始地址。")
+                        return None
+                    size = end_int - start_int
+                    self._write_hex_to_tempfile(hex_text, tmp, size=size)
+                else:
+                    # 未指定结束地址：按原行为，仅写入提供的数据长度
+                    self._write_hex_to_tempfile(hex_text, tmp, size=None)
+            except ValueError as e:
+                messagebox.showerror("十六进制错误", str(e))
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
+                return None
+            return resolved_start, tmp
+
         def on_run_action(self) -> None:
             if self._worker and self._worker.is_alive():
                 return
@@ -1199,6 +1355,14 @@ if tk is not None:
             action = self.action_var.get().strip()
             if not action:
                 return
+
+            # 如果是写入十六进制的操作，先在主线程获取数据并准备临时文件
+            hex_write_params: tuple[str, Path] | None = None
+            if self.flasher_var.get() == "sunxi-fel" and action.startswith("写入十六进制"):
+                prep = self._prompt_and_prepare_hex_write()
+                if prep is None:
+                    return  # 用户取消或出错
+                hex_write_params = prep
 
             self._set_running(True)
 
@@ -1224,6 +1388,19 @@ if tk is not None:
                             run_command([sunxi_exec, "version"], self._log)
                         elif action.startswith("SPI 信息"):
                             run_command([sunxi_exec, "-p", "spiflash-info"], self._log)
+                        elif action.startswith("写入十六进制"):
+                            # hex_write_params 在外层被设置为 (resolved_addr, tmp_path)
+                            if hex_write_params is None:
+                                raise RuntimeError("未能获取要写入的十六进制数据。")
+                            resolved_addr, tmp_path = hex_write_params
+                            try:
+                                self._log(f"写入十六进制数据 -> {resolved_addr} : {tmp_path.name}\n")
+                                run_command([sunxi_exec, "-p", "spiflash-write", resolved_addr, str(tmp_path)], self._log)
+                            finally:
+                                try:
+                                    tmp_path.unlink()
+                                except Exception:
+                                    pass
                         elif action.startswith("全片擦除"):
                             self._sunxi_chip_erase_ff(sunxi_exec)
                         elif action.startswith("重启"):
@@ -1261,12 +1438,24 @@ if tk is not None:
                 exec_path = self._selected_path(self.exec_var.get())
                 exec_addr = self.exec_addr_var.get().strip() or "0"
 
-                if boot0_path and not _is_valid_addr(boot_addr):
-                    messagebox.showerror("BOOT0 地址错误", f"地址格式非法：{boot_addr}\n示例：0x0")
-                    return
-                if exec_path and not _is_valid_addr(exec_addr):
-                    messagebox.showerror("EXEC 地址错误", f"地址格式非法：{exec_addr}\n示例：0x100000")
-                    return
+                # 允许使用别名（如 'boot0', 'logo1', 'exec'）
+                resolved_boot_addr = None
+                if boot0_path:
+                    resolved_boot_addr = resolve_sunxi_addr(boot_addr)
+                    if resolved_boot_addr is None:
+                        messagebox.showerror("BOOT0 地址错误", f"地址格式或别名非法：{boot_addr}\n示例：0x0 或 别名 boot0")
+                        return
+                else:
+                    resolved_boot_addr = boot_addr or "0"
+
+                resolved_exec_addr = None
+                if exec_path:
+                    resolved_exec_addr = resolve_sunxi_addr(exec_addr)
+                    if resolved_exec_addr is None:
+                        messagebox.showerror("EXEC 地址错误", f"地址格式或别名非法：{exec_addr}\n示例：0x100000 或 别名 exec")
+                        return
+                else:
+                    resolved_exec_addr = exec_addr or "0"
 
                 logo_jobs: list[tuple[str, str]] = []
                 for row in self.logo_entries:
@@ -1287,14 +1476,16 @@ if tk is not None:
                         return
                     if path is None:
                         continue
-                    if not _is_valid_addr(addr):
-                        messagebox.showerror("LOGO 地址错误", f"地址格式非法：{addr}\n示例：0x7000")
+                    # 支持别名解析
+                    resolved = resolve_sunxi_addr(addr)
+                    if resolved is None:
+                        messagebox.showerror("LOGO 地址错误", f"地址格式或别名非法：{addr}\n示例：0x7000 或 别名 logo1")
                         return
-                    logo_jobs.append((addr, path))
+                    logo_jobs.append((resolved, path))
 
                 summary_lines = [
                     "即将下载如下内容（F1C / sunxi-fel / SPI Flash）：",
-                    f"- BOOT0 @ {boot_addr} : {os.path.basename(boot0_path) if boot0_path else '跳过'}",
+                    f"- BOOT0 @ {resolved_boot_addr} : {os.path.basename(boot0_path) if boot0_path else '跳过'}",
                     f"- LOGO  : {'跳过' if not logo_jobs else str(len(logo_jobs)) + ' 条'}",
                 ]
                 for idx, (addr, path) in enumerate(logo_jobs, start=1):
@@ -1355,20 +1546,27 @@ if tk is not None:
                         self._ui(lambda: self._set_progress(0, max(1, total_steps)))
 
                         if boot0_path:
-                            self._log(f"写入 BOOT0 -> {boot_addr}\n")
-                            run_command([sunxi_exec, "-p", "spiflash-write", boot_addr, boot0_path], self._log)
+                            resolved_boot_addr = resolve_sunxi_addr(boot_addr)
+                            if resolved_boot_addr is None:
+                                raise RuntimeError(f"BOOT0 地址解析失败：{boot_addr}")
+                            self._log(f"写入 BOOT0 -> {resolved_boot_addr}\n")
+                            run_command([sunxi_exec, "-p", "spiflash-write", resolved_boot_addr, boot0_path], self._log)
                             done_steps += 1
                             self._ui(lambda ds=done_steps, ts=total_steps: self._set_progress(ds, ts))
 
                         for addr, lf in logo_jobs:
+                            # logo_jobs 已使用解析后的地址
                             self._log(f"写入 LOGO -> {addr} : {os.path.basename(lf)}\n")
                             run_command([sunxi_exec, "-p", "spiflash-write", addr, lf], self._log)
                             done_steps += 1
                             self._ui(lambda ds=done_steps, ts=total_steps: self._set_progress(ds, ts))
 
                         if exec_path:
-                            self._log(f"写入 EXEC  -> {exec_addr}\n")
-                            run_command([sunxi_exec, "-p", "spiflash-write", exec_addr, exec_path], self._log)
+                            resolved_exec_addr = resolve_sunxi_addr(exec_addr)
+                            if resolved_exec_addr is None:
+                                raise RuntimeError(f"EXEC 地址解析失败：{exec_addr}")
+                            self._log(f"写入 EXEC  -> {resolved_exec_addr}\n")
+                            run_command([sunxi_exec, "-p", "spiflash-write", resolved_exec_addr, exec_path], self._log)
                             done_steps += 1
                             self._ui(lambda ds=done_steps, ts=total_steps: self._set_progress(ds, ts))
                     else:
