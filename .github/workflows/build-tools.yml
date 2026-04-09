@@ -66,7 +66,7 @@ jobs:
       - name: Cache OpenOCD source
         uses: actions/cache@v4
         with:
-          path: tools/openocd
+          path: tools/openocd-code
           key: openocd-source-${{ runner.os }}-master
           restore-keys: |
             openocd-source-${{ runner.os }}-
@@ -96,7 +96,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git autoconf automake libtool \
-            libusb-1.0-0-dev libftdi-dev libfdt-dev zlib1g-dev pkg-config zip
+            libusb-1.0-0-dev libftdi-dev libftdi1-dev libhidapi-dev zlib1g-dev pkg-config zip
 
       - name: Make build script executable
         run: chmod +x build_tools.sh
@@ -104,7 +104,6 @@ jobs:
       - name: Build OpenOCD
         run: |
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
-          export OPENOCD_VERSION=${{ env.OPENOCD_VERSION }}
           ./build_tools.sh
 
       - name: Verify build artifacts
@@ -142,7 +141,7 @@ jobs:
       - name: Cache OpenOCD source
         uses: actions/cache@v4
         with:
-          path: tools/openocd
+          path: tools/openocd-code
           key: openocd-source-${{ runner.os }}-master
           restore-keys: |
             openocd-source-${{ runner.os }}-

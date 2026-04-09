@@ -43,18 +43,47 @@ OpenOCD-GUI 是一个跨平台的固件下载工具，重点支持通过 OpenOCD
 
 ### 前置依赖
 
-#### Linux
+#### 通用依赖
+构建 OpenOCD 需要：
+- GCC 或 Clang
+- make
+- libtool
+- pkg-config >= 0.23 或 pkgconf
+
+从 Git 仓库构建时还需要：
+- autoconf >= 2.69
+- automake >= 1.14
+- texinfo >= 5.0
+
+#### Linux (Debian/Ubuntu)
 ```bash
-sudo apt install build-essential git autoconf automake libtool libusb-1.0-0-dev libftdi-dev
+sudo apt install build-essential git autoconf automake libtool pkg-config \
+  libusb-1.0-0-dev libftdi-dev libftdi1-dev libhidapi-dev zlib1g-dev
+```
+
+#### Linux (CentOS/RHEL)
+```bash
+sudo yum install gcc make git autoconf automake libtool pkgconfig \
+  libusb1-devel libftdi-devel hidapi-devel zlib-devel
 ```
 
 #### Windows
-- 安装 Git Bash
-- 安装 MinGW 或 MSYS2
+- 安装 MSYS2（推荐）或 MinGW-w64
+- 使用 MSYS2 时，通过 pacman 安装依赖：
+  ```bash
+  pacman -S mingw-w64-x86_64-toolchain mingw-w64-x86_64-autotools \
+    mingw-w64-x86_64-libusb mingw-w64-x86_64-libftdi \
+    mingw-w64-x86_64-hidapi mingw-w64-x86_64-pkg-config zip
+  ```
 
 #### macOS
+使用 Homebrew 安装依赖：
 ```bash
-brew install git make gcc libusb
+brew install autoconf automake libtool pkg-config libusb libftdi hidapi
+
+# 如果需要构建文档，还需要：
+brew install texinfo
+export PATH="/usr/local/opt/texinfo/bin:$PATH"
 ```
 
 ### 构建工具
@@ -150,15 +179,24 @@ openocd-gui/
 
 ## OpenOCD 构建脚本说明
 
-`build_tools.sh` 是一个自动化构建脚本，具有以下特性：
+`build_tools.sh` 是一个自动化构建脚本，完全遵循 OpenOCD 官方文档的构建说明：
 
-- 自动从 OpenOCD 官方仓库克隆 master 分支最新代码
-- 跨平台支持（Linux、macOS、Windows）
-- 自动安装平台相关依赖
-- 完整的环境检查
-- 详细的构建日志
-- 自动打包和校验和计算
-- 构建产物验证
+- **源代码仓库**：使用 OpenOCD 官方 SourceForge 仓库（`https://git.code.sf.net/p/openocd/code`）
+- **跨平台支持**：Linux、macOS、Windows
+- **自动依赖安装**：根据官方文档安装所有必需和可选依赖
+- **完整的环境检查**：验证构建环境
+- **详细的构建日志**：清晰的构建过程输出
+- **自动打包和校验和**：生成带 SHA256 校验和的压缩包
+- **构建产物验证**：确保构建完整性
+
+### 官方 OpenOCD 文档参考
+
+构建脚本基于以下官方文档：
+- [OpenOCD README](https://openocd.org/doc-release/README)
+- [OpenOCD macOS README](https://openocd.org/doc-release/README.macOS)
+- [OpenOCD Windows README](https://openocd.org/doc-release/README.Windows)
+- [OpenOCD 用户指南](http://openocd.org/doc/html/index.html)
+- [OpenOCD 开发者手册](http://openocd.org/doc/doxygen/html/index.html)
 
 ### 使用方法
 
@@ -169,6 +207,42 @@ openocd-gui/
 # 自定义构建版本
 BUILD_VERSION=0.0.1alpha ./build_tools.sh
 ```
+
+### OpenOCD 官方获取方式
+
+您也可以直接从官方仓库获取 OpenOCD 源代码：
+
+```bash
+# 从主仓库克隆
+git clone git://git.code.sf.net/p/openocd/code openocd-code
+
+# 或使用镜像
+git clone git://repo.or.cz/openocd.git openocd-code
+
+# 更新代码
+cd openocd-code
+git pull
+```
+
+### OpenOCD 依赖说明
+
+根据官方文档，构建 OpenOCD 需要：
+
+**必需依赖**：
+- GCC 或 Clang
+- make
+- libtool
+- pkg-config >= 0.23 或 pkgconf
+
+**从 Git 构建时需要**：
+- autoconf >= 2.69
+- automake >= 1.14
+- texinfo >= 5.0
+
+**可选依赖（适配器支持）**：
+- libusb-1.0（基于 USB 的适配器）
+- libftdi（USB-Blaster、ASIX Presto、OpenJTAG）
+- HIDAPI（CMSIS-DAP）
 
 ## 故障排除
 
