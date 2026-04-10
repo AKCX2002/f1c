@@ -331,31 +331,11 @@ build_openocd() {
         git submodule update --init --recursive --force
     fi
     
-    # -----------------------------------------------------------------------
-    # 确定 jimtcl 链接策略（Windows 特有）
-    # jimtcl configure.gnu 在 MSYS2 上存在 .exe 扩展名 bug：
-    #   gcc 生成 jimsh0.exe → 脚本执行 ./jimsh0 → 找不到文件 → configure 失败
-    # 优先使用系统包（${msys_pkg_prefix}-jimtcl），若已安装则使用
-    # --disable-internal-jimtcl；否则回退至内部构建并额外设置 cc 符号链接。
-    # -----------------------------------------------------------------------
+    # jimtcl 链接策略：始终使用 --enable-internal-jimtcl（从 OpenOCD 子模块构建）。
+    # 在 MSYS2/Windows 上，jimtcl configure.gnu（autosetup 框架）需要 tclsh 或
+    # jimsh 作为解释器。CI 已预装 MSYS2 base `tcl` 包，提供 /usr/bin/tclsh，
+    # autosetup 找到它后跳过编译 jimsh0 的 bootstrap 步骤，绕过 .exe 扩展名 bug。
     local JIMTCL_OPT="--enable-internal-jimtcl"
-    if [ "${PLATFORM}" = "windows" ]; then
-        local _pkgcfg="${PKG_CONFIG:-pkg-config}"
-        if "${_pkgcfg}" --exists jimtcl 2>/dev/null; then
-            JIMTCL_OPT="--disable-internal-jimtcl"
-            echo "✓ 检测到系统 jimtcl，使用 --disable-internal-jimtcl"
-        else
-            echo "⚠ 未检测到系统 jimtcl，回退至 --enable-internal-jimtcl"
-            # 创建 cc → gcc 的包装器，解决 jimtcl configure.gnu 仅查找 cc/gcc 的问题
-            local _tmp_cc_dir
-            _tmp_cc_dir=$(mktemp -d)
-            printf '#!/bin/sh\nexec "%s" "$@"\n' "${CC}" > "${_tmp_cc_dir}/cc"
-            printf '#!/bin/sh\nexec "%s" "$@"\n' "${CC}" > "${_tmp_cc_dir}/gcc"
-            chmod +x "${_tmp_cc_dir}/cc" "${_tmp_cc_dir}/gcc"
-            export PATH="${_tmp_cc_dir}:${PATH}"
-            echo "  已创建 cc/gcc 包装器：${_tmp_cc_dir}"
-        fi
-    fi
 
     echo "运行 bootstrap..."
     ./bootstrap

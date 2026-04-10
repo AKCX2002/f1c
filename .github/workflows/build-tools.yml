@@ -180,6 +180,7 @@ jobs:
             mingw-w64-ucrt-x86_64-libusb
             mingw-w64-ucrt-x86_64-libftdi
             mingw-w64-ucrt-x86_64-hidapi
+            tcl
             zip
 
       - name: Verify MSYS2 dependencies
@@ -200,9 +201,16 @@ jobs:
             echo "hidapi not found in pkg-config"
             exit 1
           fi
-          # jimtcl 在 MSYS2 UCRT64 仓库中无预编译包，由 build_tools.sh
-          # 在 OpenOCD configure 阶段通过 --enable-internal-jimtcl 从子模块构建
-          echo "jimtcl: 将使用 OpenOCD 内置子模块 (--enable-internal-jimtcl)"
+          # tcl 包提供 /usr/bin/tclsh。jimtcl configure.gnu (autosetup) 找到
+          # tclsh 后直接用其作为解释器，跳过编译 jimsh0 的 bootstrap 步骤。
+          #（bootstrap 在 MSYS2 上失败：gcc 产出 jimsh0.exe，但脚本检测
+          #  [ -x ./jimsh0 ] → false，误报 'No working C compiler found'）
+          if command -v tclsh &>/dev/null; then
+            echo "tclsh $(tclsh <<< 'puts [info patchlevel]') found — jimtcl bootstrap will use tclsh (skips jimsh0 .exe issue)"
+          else
+            echo "WARNING: tclsh not found; jimtcl bootstrap may fail on MSYS2 (.exe extension bug)"
+            exit 1
+          fi
 
       - name: Build OpenOCD
         shell: msys2 {0}
