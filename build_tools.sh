@@ -294,6 +294,13 @@ build_openocd() {
     
     cd "${OPENOCD_DIR}"
     
+    # 确保 jimtcl 子模块已正确初始化
+    if [ ! -f "jimtcl/configure" ]; then
+        echo "确保 jimtcl 子模块已正确检出..."
+        git submodule sync --recursive
+        git submodule update --init --recursive --force
+    fi
+    
     echo "运行 bootstrap..."
     ./bootstrap
     
