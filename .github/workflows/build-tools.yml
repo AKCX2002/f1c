@@ -197,14 +197,17 @@ jobs:
           else
             echo "mingw-w64-ucrt-x86_64-libjaylink not found, build from source"
             pacman -S --noconfirm --needed \
-              git autoconf automake libtool make \
+              autoconf automake libtool make \
               mingw-w64-ucrt-x86_64-gcc \
               mingw-w64-ucrt-x86_64-pkgconf \
               mingw-w64-ucrt-x86_64-libusb
 
             workdir="$(mktemp -d)"
-            git clone --depth 1 https://github.com/openocd-org/libjaylink.git "${workdir}/libjaylink"
-            cd "${workdir}/libjaylink"
+            # 使用 wget 直接下载源码压缩包，避免 git clone 需要的凭证配置问题
+            cd "${workdir}"
+            wget -q https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz -O libjaylink-master.tar.gz
+            tar -xzf libjaylink-master.tar.gz
+            cd libjaylink-master
 
             ./autogen.sh
             export MSYS2_ARG_CONV_EXCL="-I;-L"
@@ -375,8 +378,11 @@ jobs:
           else
             echo "⚠ Homebrew 无 libjaylink formula，改为源码编译安装"
             workdir="$(mktemp -d)"
-            git clone --depth 1 https://github.com/openocd-org/libjaylink.git "${workdir}/libjaylink"
-            cd "${workdir}/libjaylink"
+            # 使用 wget 直接下载源码压缩包，避免 git clone 需要的凭证配置问题
+            cd "${workdir}"
+            wget -q https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz -O libjaylink-master.tar.gz
+            tar -xzf libjaylink-master.tar.gz
+            cd libjaylink-master
 
             ./autogen.sh
             install_prefix="$HOME/.local"
