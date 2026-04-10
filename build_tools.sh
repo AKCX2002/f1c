@@ -213,7 +213,8 @@ install_macos_dependencies() {
             pkg-config \
             libusb \
             libftdi \
-            hidapi
+            hidapi \
+            jimtcl
         
         if ! command -v texinfo &> /dev/null; then
             echo "安装 texinfo (OpenOCD 文档构建需要)"
@@ -256,7 +257,7 @@ fetch_openocd_source() {
     
     if [ ! -d "${OPENOCD_DIR}" ]; then
         echo "从 SourceForge 克隆 OpenOCD 仓库..."
-        git clone https://git.code.sf.net/p/openocd/code "${OPENOCD_DIR}"
+        git clone --recurse-submodules https://git.code.sf.net/p/openocd/code "${OPENOCD_DIR}"
     else
         echo "OpenOCD 仓库已存在，更新到最新版本..."
     fi
@@ -265,6 +266,11 @@ fetch_openocd_source() {
     
     git checkout master
     git pull origin master
+    
+    # 确保所有子模块（特别是 jimtcl）都已正确初始化和更新
+    echo "初始化和更新 git submodules..."
+    git submodule init
+    git submodule update --recursive
     
     local git_short_hash=$(git rev-parse --short HEAD)
     local git_commit_date=$(git log -1 --format=%cd --date=short)
@@ -292,7 +298,7 @@ build_openocd() {
     ./bootstrap
     
     echo "配置编译选项..."
-    local configure_opts="--prefix=${BUILD_DIR} --disable-werror --enable-internal-jimtcl"
+    local configure_opts="--prefix=${BUILD_DIR} --disable-werror"
     # 检查 libjaylink（SEGGER J-Link 支持）是否可用；如果不可用则在 configure 时禁用 jlink
     ENABLE_JLINK="--enable-jlink"
     if ! pkg-config --exists libjaylink-0.2 2>/dev/null; then
