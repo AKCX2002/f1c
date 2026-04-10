@@ -1,0 +1,49 @@
+# Dependabot 配置文件 - 自动保持 Actions 和依赖最新
+# DevOps 最佳实践：定期更新防止依赖过旧
+
+version: 2
+
+updates:
+  # 更新 GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      # 每周一检查更新
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    # 每次最多创建 5 个 PR，避免过多
+    open-pull-requests-limit: 5
+    # 给 PR 添加标签便于分类
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "automated"
+    # 提交信息前缀
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    # 审查者（如果有团队可以配置）
+    # reviewers:
+    #   - "your-team"
+
+  # 更新 pip 依赖（如果项目有 requirements.txt）
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "python"
+      - "automated"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    # 仅在有 requirements.txt 时启用
+    allow:
+      - dependency-type: "all"

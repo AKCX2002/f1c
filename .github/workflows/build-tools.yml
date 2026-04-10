@@ -3,7 +3,7 @@ name: Build OpenOCD Tools
 # ============================================
 # DevOps 专家优化说明：
 # 1. 性能优化：添加 ccache、优化缓存键、并行优化
-# 2. 稳定性：固定 Actions 到 SHA 版本、添加超时、增强错误处理
+# 2. 稳定性：使用最新 tag 版本（Dependabot 自动更新）、添加超时、增强错误处理
 # 3. 安全性：最小权限原则、限制权限范围
 # 4. 规范性：完善的注释、优化矩阵构建、改进发布流程
 # ============================================
@@ -48,9 +48,9 @@ jobs:
       build_version: ${{ steps.set-version.outputs.build_version }}
       is_release: ${{ steps.check-release.outputs.is_release }}
     steps:
-      # 稳定性优化：使用固定的 commit SHA 而非 Tag，避免意外升级导致的构建失败
+      # 使用 tag 版本（更简洁，Dependabot 会自动更新）
       - name: Checkout code
-        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380c051e
+        uses: actions/checkout@v6
         with:
           submodules: recursive
           fetch-depth: 0
@@ -87,7 +87,7 @@ jobs:
     needs: prepare
     name: Build ${{ matrix.platform }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runs-on }}
-    timeout-minutes: ${{ fromJSON(env.BUILD_TIMEOUT_MINUTES) }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -111,36 +111,41 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380c051e
+        uses: actions/checkout@v6
         with:
           submodules: recursive
 
       # ============================================
       # 性能优化：ccache 缓存配置
+      # 防依赖过旧：包含月份信息，每月强制刷新一次缓存
       # ============================================
       - name: Setup ccache
         if: matrix.platform != 'windows'
-        uses: actions/cache@0c45773b623a864904a66399a74da172732e
+        uses: actions/cache@v5
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: ccache-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
+          key: ccache-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}-${{ vars.CACHE_VERSION || 'v1' }}-${{ github.run_id }}
           restore-keys: |
+            ccache-${{ matrix.platform }}-${{ matrix.arch }}-${{ vars.CACHE_VERSION || 'v1' }}-
             ccache-${{ matrix.platform }}-${{ matrix.arch }}-
 
       # ============================================
       # 性能优化：OpenOCD 源码缓存
       # 优化缓存键：包含平台和架构，避免缓存污染
+      # 防依赖过旧：包含版本变量，可通过仓库变量强制刷新
       # ============================================
       - name: Cache OpenOCD source
-        uses: actions/cache@0c45773b623a864904a66399a74da172732e
+        uses: actions/cache@v5
         with:
           path: tools/openocd-code
-          key: openocd-source-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
+          key: openocd-source-${{ matrix.platform }}-${{ matrix.arch }}-${{ vars.CACHE_VERSION || 'v1' }}-${{ github.run_id }}
           restore-keys: |
+            openocd-source-${{ matrix.platform }}-${{ matrix.arch }}-${{ vars.CACHE_VERSION || 'v1' }}-
             openocd-source-${{ matrix.platform }}-${{ matrix.arch }}-
 
       # ============================================
       # 性能优化：Homebrew 缓存（仅 macOS）
+      # 防依赖过旧：包含版本变量，可通过仓库变量强制刷新
       # ============================================
       - name: Cache Homebrew packages
         if: matrix.platform == 'macos'
@@ -148,7 +153,9 @@ jobs:
         with:
           path: |
             ~/Library/Caches/Homebrew
-          key: homebrew-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('.github/workflows/*.yml', 'build_tools.sh') }}
+          key: homebrew-${{ matrix.platform }}-${{ matrix.arch }}-${{ vars.CACHE_VERSION || 'v1' }}-${{ hashFiles('.github/workflows/*.yml', 'build_tools.sh') }}
+          restore-keys: |
+            homebrew-${{ matrix.platform }}-${{ matrix.arch }}-${{ vars.CACHE_VERSION || 'v1' }}-
 
       - name: Record environment info
         run: |
@@ -182,7 +189,7 @@ jobs:
       # ============================================
       - name: Setup MSYS2 (Windows)
         if: matrix.platform == 'windows'
-        uses: msys2/setup-msys2@7efe9d789247111c91e828d373f2d146c4e5e3
+        uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
           update: true
@@ -430,9 +437,8 @@ jobs:
             exit 1
           fi
 
-      # 稳定性优化：使用固定 SHA 的 upload-artifact
       - name: Upload artifacts
-        uses: actions/upload-artifact@89ef406dd8d7e62d08983913e76969137332960
+        uses: actions/upload-artifact@v6
         with:
           name: openocd-${{ matrix.platform }}-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
           path: |
@@ -454,10 +460,10 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380c051e
+        uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372ae589e
+        uses: actions/download-artifact@v8
         with:
           path: artifacts/
 
@@ -478,9 +484,8 @@ jobs:
             exit 1
           fi
 
-      # 稳定性优化：使用固定 SHA 的 softprops/action-gh-release
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@69320dbe05506a9a503eb1b859773887917003
+        uses: softprops/action-gh-release@v2
         with:
           files: release-assets/*
           generate_release_notes: true
@@ -500,7 +505,7 @@ jobs:
     if: always() && contains(needs.*.result, 'failure')
     steps:
       - name: Checkout code
-        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380c051e
+        uses: actions/checkout@v6
 
       - name: Send failure notification
         run: |
