@@ -341,7 +341,8 @@ build_openocd() {
         --enable-stlink \
         ${ENABLE_JLINK} \
         --enable-cmsis-dap \
-        --enable-hidapi-libusb
+        --enable-hidapi-libusb \
+        --enable-jimtcl # <--- 新增这一行，强制使用源码树中的 jimtcl
     
     if [ "${PLATFORM}" = "macos" ]; then
         echo "开始编译 (macOS 使用单线程编译以避免并行编译问题)..."
