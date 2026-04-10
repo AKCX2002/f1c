@@ -171,10 +171,12 @@ jobs:
             mingw-w64-x86_64-pkg-config
 
       - name: Build OpenOCD
+        shell: msys2 {0}
         run: |
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
           export OPENOCD_VERSION=${{ env.OPENOCD_VERSION }}
-          msys2 -c 'cd /d/a/f1c/f1c && chmod +x build_tools.sh && ./build_tools.sh'
+          chmod +x build_tools.sh
+          ./build_tools.sh
 
       - name: Verify build artifacts
         run: |

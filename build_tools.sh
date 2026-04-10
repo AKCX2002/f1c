@@ -161,7 +161,9 @@ install_linux_dependencies() {
             libftdi1-dev \
             libhidapi-dev \
             zlib1g-dev \
-            zip
+            zip \
+            libjim-dev \
+            libjaylink-dev
         # OpenOCD commonly requires JimTcl. Prefer installing the distro dev package
         echo "尝试安装 jimtcl (libjim-dev) 依赖..."
         if sudo apt-get install -y libjim-dev; then
