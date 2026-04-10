@@ -296,32 +296,7 @@ jobs:
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
           export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
           
-          # macOS 特定：设置 Homebrew 库路径
-          if [ "${{ matrix.platform }}" = "macos" ]; then
-            # 设置 libusb 和 libftdi 的路径
-            if [ -d "/usr/local/opt/libusb" ]; then
-              export LIBUSB_CFLAGS="-I/usr/local/opt/libusb/include"
-              export LIBUSB_LIBS="-L/usr/local/opt/libusb/lib -lusb-1.0"
-            fi
-            if [ -d "/usr/local/opt/libftdi" ]; then
-              export LIBFTDI_CFLAGS="-I/usr/local/opt/libftdi/include"
-              export LIBFTDI_LIBS="-L/usr/local/opt/libftdi/lib -lftdi1"
-            fi
-            if [ -d "/opt/homebrew" ]; then
-              export LDFLAGS="-L/opt/homebrew/lib"
-              export CPPFLAGS="-I/opt/homebrew/include"
-              export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-            fi
-            if [ -d "/usr/local" ]; then
-              export LDFLAGS="-L/usr/local/lib ${LDFLAGS:-}"
-              export CPPFLAGS="-I/usr/local/include ${CPPFLAGS:-}"
-            fi
-            echo "Environment variables set for Homebrew libraries"
-            echo "CPPFLAGS=${CPPFLAGS:-}"
-            echo "LDFLAGS=${LDFLAGS:-}"
-            echo "PKG_CONFIG_PATH=${PKG_CONFIG_PATH:-}"
-          fi
-          
+          # build_tools.sh 已内置 macOS Homebrew 路径设置，无需重复设置
           ./build_tools.sh
 
       - name: Build OpenOCD (Windows)
