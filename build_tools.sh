@@ -162,6 +162,28 @@ install_linux_dependencies() {
             libhidapi-dev \
             zlib1g-dev \
             zip
+        # OpenOCD requires jimtcl (embedded TCL). Try installing common package names
+        echo "尝试安装 jimtcl (embedded TCL) 依赖..."
+        jim_candidates=(jimtcl libjim-dev libjim0 libjim0-dev jim jimtcl-dev tcl-dev tcl8.6-dev)
+        for pkg in "${jim_candidates[@]}"; do
+            echo "尝试安装包: ${pkg}"
+            if sudo apt-get install -y "${pkg}"; then
+                if pkg-config --exists jimtcl; then
+                    echo "✓ 已安装并检测到 jimtcl via pkg-config"
+                    break
+                else
+                    echo "已安装 ${pkg}，但未通过 pkg-config 检测 jimtcl，继续尝试其他候选包"
+                fi
+            else
+                echo "安装 ${pkg} 失败，继续尝试下一个候选包"
+            fi
+        done
+        # 最后检查 jimtcl 是否可用
+        if ! pkg-config --exists jimtcl; then
+            echo "错误：未能安装或检测到 jimtcl (OpenOCD 所需)。请在 CI 运行器上安装 jimtcl 开发包。"
+            # 不直接退出，这里保留错误返回以让 CI 显示失败（便于调试）
+            exit 1
+        fi
     elif command -v yum &> /dev/null; then
         echo "检测到 CentOS/RHEL 系统，使用 yum 安装依赖"
         sudo yum install -y \
