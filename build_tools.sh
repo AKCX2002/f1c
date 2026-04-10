@@ -323,7 +323,47 @@ build_openocd() {
         export PATH="${tool_prefix}:${PATH}"
         echo "Windows toolchain (${MSYSTEM:-MINGW64}): CC=${CC}, CXX=${CXX}, PKG_CONFIG=${PKG_CONFIG}"
     fi
-    
+
+    # macOS 特定：在 bootstrap 和 configure 之前设置 Homebrew 环境变量
+    if [ "${PLATFORM}" = "macos" ]; then
+        echo "=== 设置 macOS Homebrew 环境 ==="
+        
+        # 使用 brew --prefix 获取正确的 Homebrew 路径
+        if command -v brew >/dev/null 2>&1; then
+            local brew_prefix=$(brew --prefix 2>/dev/null || echo "/usr/local")
+            echo "Homebrew prefix: ${brew_prefix}"
+            
+            # 设置核心路径
+            export LDFLAGS="-L${brew_prefix}/lib ${LDFLAGS:-}"
+            export CPPFLAGS="-I${brew_prefix}/include ${CPPFLAGS:-}"
+            export PKG_CONFIG_PATH="${brew_prefix}/lib/pkgconfig:${brew_prefix}/share/pkgconfig:${PKG_CONFIG_PATH:-}"
+            
+            # 明确设置 libusb 和 libftdi 路径（使用 brew --prefix）
+            if brew --prefix libusb >/dev/null 2>&1; then
+                local libusb_prefix=$(brew --prefix libusb 2>/dev/null)
+                export LIBUSB_CFLAGS="-I${libusb_prefix}/include"
+                export LIBUSB_LIBS="-L${libusb_prefix}/lib -lusb-1.0"
+                echo "libusb prefix: ${libusb_prefix}"
+            fi
+            if brew --prefix libftdi >/dev/null 2>&1; then
+                local libftdi_prefix=$(brew --prefix libftdi 2>/dev/null)
+                export LIBFTDI_CFLAGS="-I${libftdi_prefix}/include"
+                export LIBFTDI_LIBS="-L${libftdi_prefix}/lib -lftdi1"
+                echo "libftdi prefix: ${libftdi_prefix}"
+            fi
+            
+            # 调试输出
+            echo "CPPFLAGS: ${CPPFLAGS:-}"
+            echo "LDFLAGS: ${LDFLAGS:-}"
+            echo "PKG_CONFIG_PATH: ${PKG_CONFIG_PATH:-}"
+            echo "LIBUSB_CFLAGS: ${LIBUSB_CFLAGS:-}"
+            echo "LIBUSB_LIBS: ${LIBUSB_LIBS:-}"
+            echo "LIBFTDI_CFLAGS: ${LIBFTDI_CFLAGS:-}"
+            echo "LIBFTDI_LIBS: ${LIBFTDI_LIBS:-}"
+        fi
+        echo "================================="
+    fi
+
     # 确保 jimtcl 子模块已正确初始化
     if [ ! -f "jimtcl/configure" ]; then
         echo "确保 jimtcl 子模块已正确检出..."
@@ -337,16 +377,11 @@ build_openocd() {
     # autosetup 找到它后跳过编译 jimsh0 的 bootstrap 步骤，绕过 .exe 扩展名 bug。
     local JIMTCL_OPT="--enable-internal-jimtcl"
 
-    # 如果 configure 已经存在，跳过 bootstrap 以避免 autoconf 重复注册问题
+    # 如果 configure 已经存在，完全跳过 bootstrap 以避免 autoconf 重复注册问题
     if [ -f "configure" ]; then
-        echo "configure 文件已存在，跳过 bootstrap"
+        echo "configure 文件已存在，完全跳过 bootstrap"
     else
         echo "运行 bootstrap..."
-        # 清理 autoconf 缓存避免重复注册问题
-        rm -rf autom4te.cache
-        rm -f aclocal.m4
-        rm -f configure
-        rm -f config.h.in
         ./bootstrap
     fi
     
@@ -363,49 +398,6 @@ build_openocd() {
         fi
     else
         echo "✓ 通过 pkg-config 检测到 libjaylink"
-    fi
-    
-    if [ "${PLATFORM}" = "macos" ]; then
-        # Apple Silicon (M1/M2) 和 Intel 都支持的 Homebrew 路径
-        if [ -d "/opt/homebrew" ]; then
-            export LDFLAGS="-L/opt/homebrew/lib ${LDFLAGS:-}"
-            export CPPFLAGS="-I/opt/homebrew/include ${CPPFLAGS:-}"
-            export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig:${PKG_CONFIG_PATH:-}"
-        fi
-        if [ -d "/usr/local" ]; then
-            export LDFLAGS="-L/usr/local/lib ${LDFLAGS:-}"
-            export CPPFLAGS="-I/usr/local/include ${CPPFLAGS:-}"
-            export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/local/share/pkgconfig:${PKG_CONFIG_PATH:-}"
-        fi
-        # 明确设置 libusb 和 libftdi 路径
-        if [ -d "/usr/local/opt/libusb" ]; then
-            export LIBUSB_CFLAGS="-I/usr/local/opt/libusb/include"
-            export LIBUSB_LIBS="-L/usr/local/opt/libusb/lib -lusb-1.0"
-        elif [ -d "/opt/homebrew/opt/libusb" ]; then
-            export LIBUSB_CFLAGS="-I/opt/homebrew/opt/libusb/include"
-            export LIBUSB_LIBS="-L/opt/homebrew/opt/libusb/lib -lusb-1.0"
-        fi
-        if [ -d "/usr/local/opt/libftdi" ]; then
-            export LIBFTDI_CFLAGS="-I/usr/local/opt/libftdi/include"
-            export LIBFTDI_LIBS="-L/usr/local/opt/libftdi/lib -lftdi1"
-        elif [ -d "/opt/homebrew/opt/libftdi" ]; then
-            export LIBFTDI_CFLAGS="-I/opt/homebrew/opt/libftdi/include"
-            export LIBFTDI_LIBS="-L/opt/homebrew/opt/libftdi/lib -lftdi1"
-        fi
-        if [ -d "/opt/local" ]; then
-            export LDFLAGS="-L/opt/local/lib ${LDFLAGS:-}"
-            export CPPFLAGS="-I/opt/local/include ${CPPFLAGS:-}"
-        fi
-        # 调试输出
-        echo "=== macOS Build Environment ==="
-        echo "CPPFLAGS: ${CPPFLAGS:-}"
-        echo "LDFLAGS: ${LDFLAGS:-}"
-        echo "PKG_CONFIG_PATH: ${PKG_CONFIG_PATH:-}"
-        echo "LIBUSB_CFLAGS: ${LIBUSB_CFLAGS:-}"
-        echo "LIBUSB_LIBS: ${LIBUSB_LIBS:-}"
-        echo "LIBFTDI_CFLAGS: ${LIBFTDI_CFLAGS:-}"
-        echo "LIBFTDI_LIBS: ${LIBFTDI_LIBS:-}"
-        echo "================================"
     fi
     
     ./configure ${configure_opts} \
