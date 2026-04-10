@@ -364,7 +364,7 @@ jobs:
           fi
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: openocd-${{ matrix.platform }}-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
           # 仅上传 output/ 目录：包含压缩包、校验和与版本信息
