@@ -169,7 +169,6 @@ jobs:
             mingw-w64-x86_64-libusb
             mingw-w64-x86_64-libftdi
             mingw-w64-x86_64-pkg-config
-            mingw-w64-x86_64-jimtcl
 
       - name: Build OpenOCD
         shell: msys2 {0}
