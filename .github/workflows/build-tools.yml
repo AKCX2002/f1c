@@ -169,8 +169,7 @@ jobs:
           echo "GitHub Ref: ${{ github.ref }}"
           echo "GitHub SHA: ${{ github.sha }}"
           echo "==============================="
-          echo "System Info:"
-          uname -a 2>/dev/null || echo "${{ runner.os }}"
+          echo "System Info: ${{ runner.os }}"
           echo "==============================="
 
       # ============================================
@@ -272,23 +271,14 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_ENV_HINTS: "1"
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
         run: |
           # 简化：只安装核心依赖，libjaylink 已包含在 OpenOCD 源码中
           pkgs=(autoconf automake libtool libusb libftdi pkgconf jimtcl ccache)
-          missing=()
-          for pkg in "${pkgs[@]}"; do
-            if brew list --formula "$pkg" &>/dev/null; then
-              echo "✓ $pkg is installed, skipping"
-            else
-              missing+=("$pkg")
-            fi
-          done
-          if [ "${#missing[@]}" -gt 0 ]; then
-            echo "Installing missing packages: ${missing[*]}"
-            brew install "${missing[@]}"
-          else
-            echo "✓ All dependencies are installed"
-          fi
+          # 使用 brew install --quiet 安装所有包，brew 会自动跳过已安装的
+          echo "Installing/updating Homebrew packages..."
+          brew install --quiet "${pkgs[@]}" || true
+          echo "✓ Dependencies installation complete"
 
       - name: Make build script executable
         run: chmod +x build_tools.sh
@@ -305,6 +295,33 @@ jobs:
         run: |
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
           export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          
+          # macOS 特定：设置 Homebrew 库路径
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            # 设置 libusb 和 libftdi 的路径
+            if [ -d "/usr/local/opt/libusb" ]; then
+              export LIBUSB_CFLAGS="-I/usr/local/opt/libusb/include"
+              export LIBUSB_LIBS="-L/usr/local/opt/libusb/lib -lusb-1.0"
+            fi
+            if [ -d "/usr/local/opt/libftdi" ]; then
+              export LIBFTDI_CFLAGS="-I/usr/local/opt/libftdi/include"
+              export LIBFTDI_LIBS="-L/usr/local/opt/libftdi/lib -lftdi1"
+            fi
+            if [ -d "/opt/homebrew" ]; then
+              export LDFLAGS="-L/opt/homebrew/lib"
+              export CPPFLAGS="-I/opt/homebrew/include"
+              export PKG_CONFIG_PATH="/opt/homebrew/lib/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+            fi
+            if [ -d "/usr/local" ]; then
+              export LDFLAGS="-L/usr/local/lib ${LDFLAGS:-}"
+              export CPPFLAGS="-I/usr/local/include ${CPPFLAGS:-}"
+            fi
+            echo "Environment variables set for Homebrew libraries"
+            echo "CPPFLAGS=${CPPFLAGS:-}"
+            echo "LDFLAGS=${LDFLAGS:-}"
+            echo "PKG_CONFIG_PATH=${PKG_CONFIG_PATH:-}"
+          fi
+          
           ./build_tools.sh
 
       - name: Build OpenOCD (Windows)
