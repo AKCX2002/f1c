@@ -386,14 +386,25 @@ build_openocd() {
     # autosetup 找到它后跳过编译 jimsh0 的 bootstrap 步骤，绕过 .exe 扩展名 bug。
     local JIMTCL_OPT="--enable-internal-jimtcl"
 
-    # 最强力策略：完全跳过 bootstrap，仅使用 OpenOCD 源码中已有的 configure
-    # 避免 autoconf 在 Windows/MSYS2 上的重复注册和解析错误
-    echo "跳过 bootstrap，使用 OpenOCD 源码中已有的 configure 文件"
-    # 如果 configure 不存在，给出明确错误
-    if [ ! -f "configure" ]; then
-        echo "错误：OpenOCD 源码中缺少 configure 文件！"
-        echo "请确保 OpenOCD 源码是完整的发布版本或包含 pre-generated configure"
-        exit 1
+    # configure 生成策略（两段式）：
+    #   快路径：若 configure 已存在则直接使用，跳过 bootstrap，
+    #           避免 autoconf 在 MSYS2/Windows 上的重复注册和解析错误（d0979a3 修复）。
+    #   回退路径：configure 不存在时（如未携带 pre-generated 文件的新鲜 git 检出），
+    #           执行 ./bootstrap 生成 configure，而非直接 exit 1。
+    if [ -f "configure" ]; then
+        echo "✓ 使用已有的 configure 文件（跳过 bootstrap）"
+    else
+        echo "configure 不存在，执行 bootstrap 生成..."
+        if [ ! -f "./bootstrap" ]; then
+            echo "错误：configure 和 bootstrap 均不存在，无法继续构建！"
+            exit 1
+        fi
+        ./bootstrap
+        if [ ! -f "configure" ]; then
+            echo "错误：bootstrap 执行完成后 configure 仍不存在！"
+            exit 1
+        fi
+        echo "✓ bootstrap 完成，configure 已生成"
     fi
     
     echo "配置编译选项..."
