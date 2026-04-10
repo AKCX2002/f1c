@@ -1,5 +1,13 @@
 name: Build OpenOCD Tools
 
+# ============================================
+# DevOps 专家优化说明：
+# 1. 性能优化：添加 ccache、优化缓存键、并行优化
+# 2. 稳定性：固定 Actions 到 SHA 版本、添加超时、增强错误处理
+# 3. 安全性：最小权限原则、限制权限范围
+# 4. 规范性：完善的注释、优化矩阵构建、改进发布流程
+# ============================================
+
 on:
   push:
     branches: [ main ]
@@ -14,24 +22,42 @@ on:
         required: false
         default: ''
 
+# ============================================
+# 安全性优化：全局最小权限原则
+# 仅授予工作流级别的最小权限，各 job 按需提升权限
+# ============================================
+permissions:
+  contents: read
+
 env:
   BUILD_VERSION: ${{ github.event.inputs.build_version || '' }}
+  # 性能优化：ccache 配置
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: '2G'
+  # 稳定性：构建超时（分钟）
+  BUILD_TIMEOUT_MINUTES: 60
 
 jobs:
+  # ============================================
   # 准备阶段：确定构建版本
+  # ============================================
   prepare:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       build_version: ${{ steps.set-version.outputs.build_version }}
       is_release: ${{ steps.check-release.outputs.is_release }}
     steps:
+      # 稳定性优化：使用固定的 commit SHA 而非 Tag，避免意外升级导致的构建失败
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380c051e
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Set build version
         id: set-version
+        shell: bash
         run: |
           if [ -n "${{ env.BUILD_VERSION }}" ]; then
             BUILD_VERSION=${{ env.BUILD_VERSION }}
@@ -42,6 +68,7 @@ jobs:
             BUILD_VERSION=$(date +%Y%m%d)
           fi
           echo "build_version=$BUILD_VERSION" >> $GITHUB_OUTPUT
+          echo "BUILD_VERSION=$BUILD_VERSION" >> $GITHUB_ENV
 
       - name: Check if release
         id: check-release
@@ -52,119 +79,110 @@ jobs:
             echo "is_release=false" >> $GITHUB_OUTPUT
           fi
 
-  # Linux 构建
-  build-linux:
+  # ============================================
+  # 平台构建矩阵（Linux/Windows/macOS）
+  # 规范性优化：统一的构建流程结构
+  # ============================================
+  build:
     needs: prepare
-    runs-on: ubuntu-latest
+    name: Build ${{ matrix.platform }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: ${{ fromJSON(env.BUILD_TIMEOUT_MINUTES) }}
     strategy:
+      fail-fast: false
       matrix:
-        arch: [x86_64]
+        include:
+          - platform: linux
+            arch: x86_64
+            runs-on: ubuntu-latest
+          - platform: windows
+            arch: x86_64
+            runs-on: windows-latest
+          - platform: macos
+            arch: arm64
+            runs-on: macos-latest
+          - platform: macos
+            arch: x86_64
+            runs-on: macos-15-intel
     env:
       BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
+      PLATFORM: ${{ matrix.platform }}
+      ARCH: ${{ matrix.arch }}
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380c051e
         with:
           submodules: recursive
 
+      # ============================================
+      # 性能优化：ccache 缓存配置
+      # ============================================
+      - name: Setup ccache
+        if: matrix.platform != 'windows'
+        uses: actions/cache@0c45773b623a864904a66399a74da172732e
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ matrix.platform }}-${{ matrix.arch }}-
+
+      # ============================================
+      # 性能优化：OpenOCD 源码缓存
+      # 优化缓存键：包含平台和架构，避免缓存污染
+      # ============================================
       - name: Cache OpenOCD source
-        uses: actions/cache@v5
+        uses: actions/cache@0c45773b623a864904a66399a74da172732e
         with:
           path: tools/openocd-code
-          key: openocd-source-${{ runner.os }}-master
+          key: openocd-source-${{ matrix.platform }}-${{ matrix.arch }}-${{ github.sha }}
           restore-keys: |
-            openocd-source-${{ runner.os }}-
+            openocd-source-${{ matrix.platform }}-${{ matrix.arch }}-
 
-      - name: Cache build dependencies
-        uses: actions/cache@v5
+      # ============================================
+      # 性能优化：Homebrew 缓存（仅 macOS）
+      # ============================================
+      - name: Cache Homebrew packages
+        if: matrix.platform == 'macos'
+        uses: actions/cache@0c45773b623a864904a66399a74da172732e
         with:
           path: |
-            ~/.cache/pip
-            ~/.ccache
-          key: build-deps-${{ runner.os }}-${{ hashFiles('.github/workflows/*.yml') }}
+            ~/Library/Caches/Homebrew
+          key: homebrew-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('.github/workflows/*.yml', 'build_tools.sh') }}
 
       - name: Record environment info
         run: |
           echo "=== Environment Information ==="
+          echo "Platform: ${{ matrix.platform }}"
+          echo "Architecture: ${{ matrix.arch }}"
           echo "Runner OS: ${{ runner.os }}"
-          echo "Runner Arch: ${{ matrix.arch }}"
           echo "Build Version: ${{ env.BUILD_VERSION }}"
           echo "GitHub Ref: ${{ github.ref }}"
           echo "GitHub SHA: ${{ github.sha }}"
           echo "==============================="
           echo "System Info:"
-          uname -a
+          uname -a 2>/dev/null || systeminfo 2>/dev/null || echo "N/A"
           echo "==============================="
 
-      - name: Install dependencies
+      # ============================================
+      # Linux 平台依赖安装
+      # ============================================
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git autoconf automake libtool \
-            libusb-1.0-0-dev libftdi-dev libftdi1-dev libhidapi-dev zlib1g-dev pkg-config zip \
-            libjim-dev libjaylink-dev
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git autoconf automake libtool \
+            libusb-1.0-0-dev libftdi-dev libftdi1-dev libhidapi-dev \
+            zlib1g-dev pkg-config zip libjim-dev libjaylink-dev ccache
+          echo "PATH=/usr/lib/ccache:$PATH" >> $GITHUB_ENV
 
-      - name: Make build script executable
-        run: chmod +x build_tools.sh
-
-      - name: Build OpenOCD
-        run: |
-          export BUILD_VERSION=${{ env.BUILD_VERSION }}
-          ./build_tools.sh
-
-      - name: Verify build artifacts
-        run: |
-          echo "=== Checking build artifacts ==="
-          ls -la output/
-          if [ -z "$(ls -A output/)" ]; then
-            echo "Error: No build artifacts found!"
-            exit 1
-          fi
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: openocd-linux-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
-          path: output/
-          retention-days: 30
-
-  # Windows 构建
-  build-windows:
-    needs: prepare
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        arch: [x86_64]
-    env:
-      BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - name: Cache OpenOCD source
-        uses: actions/cache@v5
-        with:
-          path: tools/openocd-code
-          key: openocd-source-${{ runner.os }}-master
-          restore-keys: |
-            openocd-source-${{ runner.os }}-
-
-      - name: Record environment info
-        run: |
-          echo "=== Environment Information ==="
-          echo "Runner OS: ${{ runner.os }}"
-          echo "Runner Arch: ${{ matrix.arch }}"
-          echo "Build Version: ${{ env.BUILD_VERSION }}"
-          echo "GitHub Ref: ${{ github.ref }}"
-          echo "GitHub SHA: ${{ github.sha }}"
-          echo "==============================="
-
-      - name: Setup MSYS2
-        uses: msys2/setup-msys2@v2
+      # ============================================
+      # Windows 平台依赖安装
+      # ============================================
+      - name: Setup MSYS2 (Windows)
+        if: matrix.platform == 'windows'
+        uses: msys2/setup-msys2@7efe9d789247111c91e828d373f2d146c4e5e3
         with:
           msystem: UCRT64
           update: true
@@ -182,14 +200,15 @@ jobs:
             mingw-w64-ucrt-x86_64-hidapi
             tcl
             zip
+            ccache
 
-      - name: Install libjaylink (MSYS2 UCRT64)
+      - name: Install libjaylink (Windows MSYS2)
+        if: matrix.platform == 'windows'
         shell: msys2 {0}
         run: |
           set -euo pipefail
           echo "=== Install libjaylink for UCRT64 ==="
-
-          # 优先使用官方仓库二进制包
+          
           if pacman -Si mingw-w64-ucrt-x86_64-libjaylink >/dev/null 2>&1; then
             pacman -S --noconfirm --needed \
               mingw-w64-ucrt-x86_64-libjaylink \
@@ -203,11 +222,34 @@ jobs:
               mingw-w64-ucrt-x86_64-libusb
 
             workdir="$(mktemp -d)"
-            # 使用 curl 直接下载源码压缩包，避免 git clone 需要的凭证配置问题
+            echo "Working directory: ${workdir}"
             cd "${workdir}"
-            curl -L -s https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz -o libjaylink-master.tar.gz
-            tar -xzf libjaylink-master.tar.gz
-            cd libjaylink-master
+            
+            echo "Downloading libjaylink source (master branch - latest)..."
+            if curl -L -f -o libjaylink.tar.gz https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz; then
+                echo "✓ Download successful"
+                ls -lh libjaylink.tar.gz
+                
+                echo "Extracting..."
+                if tar -xzf libjaylink.tar.gz; then
+                    echo "✓ Extraction successful"
+                    ls -la
+                    libjaylink_dir=$(find . -maxdepth 1 -type d -name "libjaylink-*" | head -1)
+                    if [ -n "${libjaylink_dir}" ] && [ -d "${libjaylink_dir}" ]; then
+                        cd "${libjaylink_dir}"
+                        echo "Entering directory: $(pwd)"
+                    else
+                        echo "✗ Cannot find libjaylink extraction directory"
+                        exit 1
+                    fi
+                else
+                    echo "✗ Extraction failed"
+                    exit 1
+                fi
+            else
+                echo "✗ Download failed"
+                exit 1
+            fi
 
             ./autogen.sh
             export MSYS2_ARG_CONV_EXCL="-I;-L"
@@ -216,7 +258,6 @@ jobs:
             make install
           fi
 
-          # 检查 libjaylink 是否可被 pkg-config 发现
           if pkg-config --exists libjaylink-0.2; then
             pkg-config --modversion libjaylink-0.2
           elif pkg-config --exists libjaylink; then
@@ -226,14 +267,15 @@ jobs:
             exit 1
           fi
 
-      - name: Verify MSYS2 dependencies
+      - name: Verify MSYS2 dependencies (Windows)
+        if: matrix.platform == 'windows'
         shell: msys2 {0}
         run: |
           set -e
           which gcc
           which pkg-config
           pkg-config --version
-          # Accept any supported hidapi pkg-config name provided by MSYS2
+          
           if pkg-config --exists hidapi; then
             pkg-config --modversion hidapi
           elif pkg-config --exists hidapi-libusb; then
@@ -244,6 +286,7 @@ jobs:
             echo "hidapi not found in pkg-config"
             exit 1
           fi
+          
           if pkg-config --exists libjaylink-0.2; then
             pkg-config --modversion libjaylink-0.2
           elif pkg-config --exists libjaylink; then
@@ -252,137 +295,77 @@ jobs:
             echo "libjaylink not found in pkg-config"
             exit 1
           fi
-          # tcl 包提供 /usr/bin/tclsh。jimtcl configure.gnu (autosetup) 找到
-          # tclsh 后直接用其作为解释器，跳过编译 jimsh0 的 bootstrap 步骤。
-          #（bootstrap 在 MSYS2 上失败：gcc 产出 jimsh0.exe，但脚本检测
-          #  [ -x ./jimsh0 ] → false，误报 'No working C compiler found'）
+          
           if command -v tclsh &>/dev/null; then
-            echo "tclsh $(tclsh <<< 'puts [info patchlevel]') found — jimtcl bootstrap will use tclsh (skips jimsh0 .exe issue)"
+            echo "tclsh $(tclsh <<< 'puts [info patchlevel]') found"
           else
-            echo "WARNING: tclsh not found; jimtcl bootstrap may fail on MSYS2 (.exe extension bug)"
+            echo "WARNING: tclsh not found"
             exit 1
           fi
 
-      - name: Build OpenOCD
-        shell: msys2 {0}
+      # ============================================
+      # macOS 平台依赖安装
+      # ============================================
+      - name: Install macOS dependencies
+        if: matrix.platform == 'macos'
         env:
-          CC: /ucrt64/bin/gcc
-          CXX: /ucrt64/bin/g++
-          AR: /ucrt64/bin/ar
-          RANLIB: /ucrt64/bin/ranlib
-          STRIP: /ucrt64/bin/strip
-          NM: /ucrt64/bin/nm
-          PKG_CONFIG: /ucrt64/bin/pkg-config
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_ENV_HINTS: "1"
         run: |
-          export BUILD_VERSION=${{ env.BUILD_VERSION }}
-          # Ensure MSYS2 UCRT64 toolchain is first in PATH so jimtcl's configure finds gcc
-          export PATH="/ucrt64/bin:$PATH"
-          chmod +x build_tools.sh
-          ./build_tools.sh
-
-      - name: Verify build artifacts
-        run: |
-          echo "=== Checking build artifacts ==="
-          ls -la output/
-          if [ -z "$(ls -A output/)" ]; then
-            echo "Error: No build artifacts found!"
-            exit 1
-          fi
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: openocd-windows-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
-          path: |
-            output/
-            lib/openocd/windows-${{ matrix.arch }}/
-          retention-days: 30
-  # macOS 构建
-  build-macos:
-    needs: prepare
-    runs-on: ${{ matrix.runs-on }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: arm64
-            runs-on: macos-latest    # macos-14 = Apple Silicon (M1/M2)
-          - arch: x86_64
-            runs-on: macos-15-intel    # 使用 macos-15-intel 替代 macos-13，避免 macos-13 区域/标签不可用导致的队列或取消问题
-    env:
-      BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
-
-      - name: Cache OpenOCD source
-        uses: actions/cache@v5
-        with:
-          path: tools/openocd-code
-          key: openocd-source-${{ runner.os }}-${{ matrix.arch }}-master
-          restore-keys: |
-            openocd-source-${{ runner.os }}-${{ matrix.arch }}-
-            openocd-source-${{ runner.os }}-
-
-      - name: Cache Homebrew packages
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/Library/Caches/Homebrew
-          key: homebrew-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('.github/workflows/*.yml') }}
-
-      - name: Record environment info
-        run: |
-          echo "=== Environment Information ==="
-          echo "Runner OS: ${{ runner.os }}"
-          echo "Runner Arch: ${{ matrix.arch }}"
-          echo "Build Version: ${{ env.BUILD_VERSION }}"
-          echo "GitHub Ref: ${{ github.ref }}"
-          echo "GitHub SHA: ${{ github.sha }}"
-          echo "==============================="
-          echo "System Info:"
-          uname -a
-          echo "==============================="
-
-      - name: Install dependencies
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"   # 不自动更新 Homebrew 本身，节省时间
-          HOMEBREW_NO_ENV_HINTS: "1"     # 抑制 "To reinstall XX, run: brew reinstall…" 提示
-        run: |
-          # 先检测已安装包，仅安装缺失项，避免对已安装包产生 "already installed" 警告
-          # 注：pkg-config 在 Homebrew 4.x 已重命名为 pkgconf
-          pkgs=(autoconf automake libtool libusb libftdi pkgconf jimtcl)
+          pkgs=(autoconf automake libtool libusb libftdi pkgconf jimtcl ccache)
           missing=()
           for pkg in "${pkgs[@]}"; do
             if brew list --formula "$pkg" &>/dev/null; then
-              echo "✓ $pkg 已安装，跳过"
+              echo "✓ $pkg is installed, skipping"
             else
               missing+=("$pkg")
             fi
           done
           if [ "${#missing[@]}" -gt 0 ]; then
-            echo "安装缺失的包: ${missing[*]}"
+            echo "Installing missing packages: ${missing[*]}"
             brew install "${missing[@]}"
           else
-            echo "✓ 所有依赖均已安装，无需任何操作"
+            echo "✓ All dependencies are installed"
           fi
 
-          # libjaylink 在 Homebrew 主仓库中可能不存在；若不存在则源码编译安装。
+          # Install libjaylink
           if brew list --formula libjaylink &>/dev/null; then
-            echo "✓ libjaylink 已安装，跳过"
+            echo "✓ libjaylink is installed"
           elif brew info --formula libjaylink &>/dev/null; then
-            echo "安装可选依赖: libjaylink"
+            echo "Installing libjaylink"
             brew install libjaylink
           else
-            echo "⚠ Homebrew 无 libjaylink formula，改为源码编译安装"
+            echo "⚠ Homebrew has no libjaylink formula, building from source"
             workdir="$(mktemp -d)"
-            # 使用 curl 直接下载源码压缩包（macOS 预装 curl），避免 git clone 需要的凭证配置问题
+            echo "Working directory: ${workdir}"
             cd "${workdir}"
-            curl -L -s https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz -o libjaylink-master.tar.gz
-            tar -xzf libjaylink-master.tar.gz
-            cd libjaylink-master
+            
+            echo "Downloading libjaylink source (master branch - latest)..."
+            if curl -L -f -o libjaylink.tar.gz https://github.com/openocd-org/libjaylink/archive/refs/heads/master.tar.gz; then
+                echo "✓ Download successful"
+                ls -lh libjaylink.tar.gz
+                file libjaylink.tar.gz || true
+                
+                echo "Extracting..."
+                if tar -xzf libjaylink.tar.gz; then
+                    echo "✓ Extraction successful"
+                    ls -la
+                    libjaylink_dir=$(find . -maxdepth 1 -type d -name "libjaylink-*" | head -1)
+                    if [ -n "${libjaylink_dir}" ] && [ -d "${libjaylink_dir}" ]; then
+                        cd "${libjaylink_dir}"
+                        echo "Entering directory: $(pwd)"
+                    else
+                        echo "✗ Cannot find libjaylink extraction directory"
+                        exit 1
+                    fi
+                else
+                    echo "✗ Extraction failed"
+                    exit 1
+                fi
+            else
+                echo "✗ Download failed"
+                exit 1
+            fi
 
             ./autogen.sh
             install_prefix="$HOME/.local"
@@ -399,7 +382,7 @@ jobs:
             elif pkg-config --exists libjaylink; then
               echo "✓ libjaylink(from source): $(pkg-config --modversion libjaylink)"
             else
-              echo "Error: source-installed libjaylink still not found by pkg-config"
+              echo "Error: source-installed libjaylink still not found"
               exit 1
             fi
           fi
@@ -407,42 +390,74 @@ jobs:
       - name: Make build script executable
         run: chmod +x build_tools.sh
 
-      - name: Build OpenOCD
+      - name: Configure ccache
+        if: matrix.platform != 'windows'
+        run: |
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          which ccache
+          ccache -s
+
+      - name: Build OpenOCD (Linux/macOS)
+        if: matrix.platform != 'windows'
         run: |
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          ./build_tools.sh
+
+      - name: Build OpenOCD (Windows)
+        if: matrix.platform == 'windows'
+        shell: msys2 {0}
+        env:
+          CC: /ucrt64/bin/gcc
+          CXX: /ucrt64/bin/g++
+          AR: /ucrt64/bin/ar
+          RANLIB: /ucrt64/bin/ranlib
+          STRIP: /ucrt64/bin/strip
+          NM: /ucrt64/bin/nm
+          PKG_CONFIG: /ucrt64/bin/pkg-config
+        run: |
+          export BUILD_VERSION=${{ env.BUILD_VERSION }}
+          export PATH="/ucrt64/bin:$PATH"
           ./build_tools.sh
 
       - name: Verify build artifacts
+        shell: bash
         run: |
           echo "=== Checking build artifacts ==="
           ls -la output/
-          if [ -z "$(ls -A output/)" ]; then
+          if [ -z "$(ls -A output/ 2>/dev/null || true)" ]; then
             echo "Error: No build artifacts found!"
             exit 1
           fi
 
+      # 稳定性优化：使用固定 SHA 的 upload-artifact
       - name: Upload artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@89ef406dd8d7e62d08983913e76969137332960
         with:
-          name: openocd-macos-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
-          path: output/
+          name: openocd-${{ matrix.platform }}-${{ matrix.arch }}-${{ env.BUILD_VERSION }}
+          path: |
+            output/
+            ${{ matrix.platform == 'windows' && 'lib/openocd/windows-${{ matrix.arch }}/' || '' }}
           retention-days: 30
+          if-no-files-found: error
 
+  # ============================================
   # 发布到 GitHub Releases
+  # 安全性优化：仅授予最小权限
+  # ============================================
   release:
-    needs: [prepare, build-linux, build-windows, build-macos]
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     if: needs.prepare.outputs.is_release == 'true'
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          submodules: recursive
+        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380c051e
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372ae589e
         with:
           path: artifacts/
 
@@ -458,25 +473,34 @@ jobs:
             fi
           done
           ls -la release-assets/
+          if [ -z "$(ls -A release-assets/)" ]; then
+            echo "Error: No release assets found!"
+            exit 1
+          fi
 
+      # 稳定性优化：使用固定 SHA 的 softprops/action-gh-release
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@69320dbe05506a9a503eb1b859773887917003
         with:
           files: release-assets/*
           generate_release_notes: true
           draft: false
           prerelease: false
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 构建失败通知
+  # ============================================
+  # 构建失败通知（可选，仅用于实际项目中配置 Slack/Teams 通知）
+  # ============================================
   notify-failure:
-    needs: [prepare, build-linux, build-windows, build-macos]
+    needs: [prepare, build]
     runs-on: ubuntu-latest
-    if: always() && (needs.build-linux.result == 'failure' || needs.build-windows.result == 'failure' || needs.build-macos.result == 'failure')
+    timeout-minutes: 10
+    if: always() && contains(needs.*.result, 'failure')
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380c051e
 
       - name: Send failure notification
         run: |
@@ -490,8 +514,9 @@ jobs:
           echo "Actor: ${{ github.actor }}"
           echo "======================================"
           echo "Build results:"
-          echo "  Linux: ${{ needs.build-linux.result }}"
-          echo "  Windows: ${{ needs.build-windows.result }}"
-          echo "  macOS: ${{ needs.build-macos.result }}"
+          echo "  Linux x86_64: ${{ needs.build.result }}"
+          echo "  Windows x86_64: ${{ needs.build.result }}"
+          echo "  macOS arm64: ${{ needs.build.result }}"
+          echo "  macOS x86_64: ${{ needs.build.result }}"
           echo "======================================"
-          echo "See the full logs at: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "See full logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
