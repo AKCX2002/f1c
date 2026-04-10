@@ -180,6 +180,7 @@ jobs:
             mingw-w64-ucrt-x86_64-libusb
             mingw-w64-ucrt-x86_64-libftdi
             mingw-w64-ucrt-x86_64-hidapi
+            mingw-w64-ucrt-x86_64-jimtcl
             zip
 
       - name: Verify MSYS2 dependencies
@@ -200,6 +201,12 @@ jobs:
             echo "hidapi not found in pkg-config"
             exit 1
           fi
+          # Verify jimtcl is available via pkg-config (critical for --disable-internal-jimtcl)
+          if pkg-config --exists jimtcl; then
+            echo "jimtcl $(pkg-config --modversion jimtcl) found (system package - will use --disable-internal-jimtcl)"
+          else
+            echo "WARNING: jimtcl not found via pkg-config; build will fall back to --enable-internal-jimtcl (may fail on MSYS2 due to .exe extension issue)"
+          fi
 
       - name: Build OpenOCD
         shell: msys2 {0}
@@ -213,6 +220,8 @@ jobs:
           PKG_CONFIG: /ucrt64/bin/pkg-config
         run: |
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
+          # Ensure MSYS2 UCRT64 toolchain is first in PATH so jimtcl's configure finds gcc
+          export PATH="/ucrt64/bin:$PATH"
           chmod +x build_tools.sh
           ./build_tools.sh
 
@@ -236,10 +245,14 @@ jobs:
   # macOS 构建
   build-macos:
     needs: prepare
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runs-on }}
     strategy:
       matrix:
-        arch: [arm64, x86_64]
+        include:
+          - arch: arm64
+            runs-on: macos-latest    # macos-14 = Apple Silicon (M1/M2)
+          - arch: x86_64
+            runs-on: macos-13        # 最后一个 Intel (x86_64) GitHub Actions runner
     env:
       BUILD_VERSION: ${{ needs.prepare.outputs.build_version }}
     steps:
@@ -278,10 +291,27 @@ jobs:
           echo "==============================="
 
       - name: Install dependencies
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"   # 不自动更新 Homebrew 本身，节省时间
+          HOMEBREW_NO_ENV_HINTS: "1"     # 抑制 "To reinstall XX, run: brew reinstall…" 提示
         run: |
-          brew install autoconf automake libtool libusb libftdi pkg-config || true
-          # Install jimtcl (embedded Tcl) used by OpenOCD
-          brew install jimtcl || true
+          # 先检测已安装包，仅安装缺失项，避免对已安装包产生 "already installed" 警告
+          # 注：pkg-config 在 Homebrew 4.x 已重命名为 pkgconf
+          pkgs=(autoconf automake libtool libusb libftdi pkgconf jimtcl)
+          missing=()
+          for pkg in "${pkgs[@]}"; do
+            if brew list --formula "$pkg" &>/dev/null; then
+              echo "✓ $pkg 已安装，跳过"
+            else
+              missing+=("$pkg")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "安装缺失的包: ${missing[*]}"
+            brew install "${missing[@]}"
+          else
+            echo "✓ 所有依赖均已安装，无需任何操作"
+          fi
 
       - name: Make build script executable
         run: chmod +x build_tools.sh
