@@ -226,14 +226,15 @@ install_windows_dependencies() {
     if command -v pacman &> /dev/null; then
         echo "检测到 MSYS2，使用 pacman 安装依赖"
         pacman -S --noconfirm \
-            mingw-w64-x86_64-toolchain \
-            mingw-w64-x86_64-autoconf \
-            mingw-w64-x86_64-automake \
-            mingw-w64-x86_64-libtool \
+            autoconf \
+            automake \
+            libtool \
+            mingw-w64-x86_64-gcc \
+            mingw-w64-x86_64-make \
+            mingw-w64-x86_64-pkgconf \
             mingw-w64-x86_64-libusb \
             mingw-w64-x86_64-libftdi \
             mingw-w64-x86_64-hidapi \
-            mingw-w64-x86_64-pkg-config \
             zip
     else
         echo "警告：请确保已在 Windows 上安装 MSYS2 或 MinGW 及必要的依赖库"

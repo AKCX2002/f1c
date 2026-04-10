@@ -47,5 +47,3 @@ test/coverage/
 .env.*.local
 
 ci log/
-
-*.txt
