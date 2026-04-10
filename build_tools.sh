@@ -418,7 +418,8 @@ package_unix_build() {
     fi
     
     if [ -d "${BUILD_DIR}/share/openocd" ]; then
-        cp -r "${BUILD_DIR}/share/openocd" "${PACKAGE_PATH}/"
+        mkdir -p "${PACKAGE_PATH}/share"
+        cp -r "${BUILD_DIR}/share/openocd" "${PACKAGE_PATH}/share/"
         echo "✓ 复制 OpenOCD 配置文件"
     elif [ -d "${OPENOCD_DIR}/tcl" ]; then
         mkdir -p "${PACKAGE_PATH}/share/openocd"
@@ -442,7 +443,8 @@ package_windows_build() {
     fi
     
     if [ -d "${BUILD_DIR}/share/openocd" ]; then
-        cp -r "${BUILD_DIR}/share/openocd" "${PACKAGE_PATH}/"
+        mkdir -p "${PACKAGE_PATH}/share"
+        cp -r "${BUILD_DIR}/share/openocd" "${PACKAGE_PATH}/share/"
         echo "✓ 复制 OpenOCD 配置文件"
     elif [ -d "${OPENOCD_DIR}/tcl" ]; then
         mkdir -p "${PACKAGE_PATH}/share/openocd"
