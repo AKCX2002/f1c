@@ -1,3 +1,7 @@
-[submodule "openocd-code"]
-	path = openocd-code
+[submodule "tools/openocd-code"]
+	path = tools/openocd-code
 	url = https://git.code.sf.net/p/openocd/code
+
+[submodule "aur-build/mingw-w64-libftdi"]
+	path = aur-build/mingw-w64-libftdi
+	url = https://aur.archlinux.org/mingw-w64-libftdi.git

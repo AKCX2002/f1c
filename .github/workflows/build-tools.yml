@@ -183,6 +183,46 @@ jobs:
             tcl
             zip
 
+      - name: Install libjaylink (MSYS2 UCRT64)
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          echo "=== Install libjaylink for UCRT64 ==="
+
+          # 优先使用官方仓库二进制包
+          if pacman -Si mingw-w64-ucrt-x86_64-libjaylink >/dev/null 2>&1; then
+            pacman -S --noconfirm --needed \
+              mingw-w64-ucrt-x86_64-libjaylink \
+              mingw-w64-ucrt-x86_64-libusb
+          else
+            echo "mingw-w64-ucrt-x86_64-libjaylink not found, build from source"
+            pacman -S --noconfirm --needed \
+              git autoconf automake libtool make \
+              mingw-w64-ucrt-x86_64-gcc \
+              mingw-w64-ucrt-x86_64-pkgconf \
+              mingw-w64-ucrt-x86_64-libusb
+
+            workdir="$(mktemp -d)"
+            git clone --depth 1 https://github.com/openocd-org/libjaylink.git "${workdir}/libjaylink"
+            cd "${workdir}/libjaylink"
+
+            ./autogen.sh
+            export MSYS2_ARG_CONV_EXCL="-I;-L"
+            ./configure --host=x86_64-w64-mingw32 --prefix=/ucrt64
+            make -j"$(nproc)"
+            make install
+          fi
+
+          # 检查 libjaylink 是否可被 pkg-config 发现
+          if pkg-config --exists libjaylink-0.2; then
+            pkg-config --modversion libjaylink-0.2
+          elif pkg-config --exists libjaylink; then
+            pkg-config --modversion libjaylink
+          else
+            echo "libjaylink not found in pkg-config"
+            exit 1
+          fi
+
       - name: Verify MSYS2 dependencies
         shell: msys2 {0}
         run: |
@@ -199,6 +239,14 @@ jobs:
             pkg-config --modversion hidapi-hidraw
           else
             echo "hidapi not found in pkg-config"
+            exit 1
+          fi
+          if pkg-config --exists libjaylink-0.2; then
+            pkg-config --modversion libjaylink-0.2
+          elif pkg-config --exists libjaylink; then
+            pkg-config --modversion libjaylink
+          else
+            echo "libjaylink not found in pkg-config"
             exit 1
           fi
           # tcl 包提供 /usr/bin/tclsh。jimtcl configure.gnu (autosetup) 找到
