@@ -293,16 +293,16 @@ build_openocd() {
     cd "${OPENOCD_DIR}"
 
     # MSYS2/MINGW64 下，OpenOCD 的 jimtcl 子配置有时不会自动继承可用编译器。
-    # 显式导出工具链，避免 configure.gnu 误判“找不到可工作的 C compiler”。
+    # 显式导出工具链（使用完整路径），避免 configure.gnu 误判"找不到可工作的 C compiler"。
     if [ "${PLATFORM}" = "windows" ]; then
-        export CC="${CC:-gcc}"
-        export CXX="${CXX:-g++}"
-        export AR="${AR:-ar}"
-        export RANLIB="${RANLIB:-ranlib}"
-        export STRIP="${STRIP:-strip}"
-        export NM="${NM:-nm}"
-        export PKG_CONFIG="${PKG_CONFIG:-pkg-config}"
-        echo "Windows toolchain: CC=${CC}, CXX=${CXX}, PKG_CONFIG=${PKG_CONFIG}"
+        export CC="/mingw64/bin/gcc"
+        export CXX="/mingw64/bin/g++"
+        export AR="/mingw64/bin/ar"
+        export RANLIB="/mingw64/bin/ranlib"
+        export STRIP="/mingw64/bin/strip"
+        export NM="/mingw64/bin/nm"
+        export PKG_CONFIG="/mingw64/bin/pkg-config"
+        echo "Windows toolchain (full paths): CC=${CC}, CXX=${CXX}, PKG_CONFIG=${PKG_CONFIG}"
     fi
     
     # 确保 jimtcl 子模块已正确初始化

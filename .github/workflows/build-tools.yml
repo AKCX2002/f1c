@@ -204,13 +204,13 @@ jobs:
       - name: Build OpenOCD
         shell: msys2 {0}
         env:
-          CC: gcc
-          CXX: g++
-          AR: ar
-          RANLIB: ranlib
-          STRIP: strip
-          NM: nm
-          PKG_CONFIG: pkg-config
+          CC: /mingw64/bin/gcc
+          CXX: /mingw64/bin/g++
+          AR: /mingw64/bin/ar
+          RANLIB: /mingw64/bin/ranlib
+          STRIP: /mingw64/bin/strip
+          NM: /mingw64/bin/nm
+          PKG_CONFIG: /mingw64/bin/pkg-config
         run: |
           export BUILD_VERSION=${{ env.BUILD_VERSION }}
           chmod +x build_tools.sh
