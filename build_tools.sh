@@ -291,6 +291,18 @@ build_openocd() {
     
     echo "配置编译选项..."
     local configure_opts="--prefix=${BUILD_DIR} --disable-werror"
+    # 检查 libjaylink（SEGGER J-Link 支持）是否可用；如果不可用则在 configure 时禁用 jlink
+    ENABLE_JLINK="--enable-jlink"
+    if ! pkg-config --exists libjaylink-0.2 2>/dev/null; then
+        if [ -f /usr/include/jaylink.h ] || [ -f /usr/local/include/jaylink.h ] || [ -f /opt/homebrew/include/jaylink.h ]; then
+            echo "✓ 在系统头文件中检测到 libjaylink（headers 存在）"
+        else
+            echo "⚠ libjaylink 未检测到，构建将禁用 J-Link 支持以避免 configure 失败"
+            ENABLE_JLINK=""
+        fi
+    else
+        echo "✓ 通过 pkg-config 检测到 libjaylink"
+    fi
     
     if [ "${PLATFORM}" = "macos" ]; then
         if [ -d "/usr/local/opt/libusb" ]; then
@@ -312,7 +324,7 @@ build_openocd() {
         --enable-usb-blaster \
         --enable-ftdi \
         --enable-stlink \
-        --enable-jlink \
+        ${ENABLE_JLINK} \
         --enable-cmsis-dap \
         --enable-hidapi-libusb
     
